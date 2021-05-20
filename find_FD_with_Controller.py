@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[2]:
+# In[1]:
 
 
 import copy
@@ -11,7 +11,7 @@ findspark.init()
 
 # ### Import Data
 
-# In[3]:
+# In[ ]:
 
 
 from pyspark.sql import SparkSession
@@ -20,21 +20,15 @@ spark.conf.set('spark.sql.repl.eagerEval.enabled', True)
 sc=spark.sparkContext
 
 
-# In[20]:
+# In[ ]:
 
 
 df = spark.read.format("csv").option("header", "true").load('./data/2018-01_bme280sof.csv')
 
 
-# In[4]:
-
-
-# df = spark.sql("SELECT * FROM _2018_01_bme280sof_1_csv")
-
-
 # ### Define Controller(a function not a class for convenience)
 
-# In[21]:
+# In[ ]:
 
 
 def generate_computational_graph(RHS, schema):
@@ -45,24 +39,23 @@ def generate_computational_graph(RHS, schema):
     key: level
     value: list of current level's candidates, candidates are in the format of set
     -----
-
     """
     computational_graph=dict()
     for level in range(3):
     #use brute force to generate candidates for each level
         computational_graph[level]=[]
-    if level == 0:
-        for attribute in schema:
-            if attribute != RHS:
-                computational_graph[level].append(set([attribute]))
+        if level == 0:
+            for attribute in schema:
+                if attribute != RHS:
+                    computational_graph[level].append(set([attribute]))
 
-    else:
-        for element1 in computational_graph[level-1]:
-            for element2 in computational_graph[0]:
-                newelement = element1.union(element2)
-                if newelement not in computational_graph[level]:
-                    if len(newelement) == level + 1:
-                        computational_graph[level].append(newelement)    
+        else:
+            for element1 in computational_graph[level-1]:
+                for element2 in computational_graph[0]:
+                    newelement = element1.union(element2)
+                    if newelement not in computational_graph[level]:
+                        if len(newelement) == level + 1:
+                            computational_graph[level].append(newelement)    
 
     return computational_graph
 
@@ -111,7 +104,7 @@ def transform_res(FDs):
     return current_level_result
 
 
-def find_FDs(df,current_level_candidates):
+def find_FDs(df, current_level_candidates):
     """
     Parameters
     -------------
@@ -125,9 +118,10 @@ def find_FDs(df,current_level_candidates):
   
     schema = df.columns[1:]
     FDs=[]
+    df.createOrReplaceTempView("air")
     for RHS in schema:
         for LHS in current_level_candidates[RHS]:
-            sqlstring='SELECT '+f'{", ".join(f"{attribute}" for attribute in LHS)}'+f', COUNT(DISTINCT {RHS}) c'+' FROM _2018_01_bme280sof_1_csv GROUP BY '+f'{", ".join(f"{attribute}" for attribute in LHS)}'+ ' HAVING c>1'
+            sqlstring='SELECT '+f'{", ".join(f"{attribute}" for attribute in LHS)}'+f', COUNT(DISTINCT {RHS}) c'+' FROM air GROUP BY '+f'{", ".join(f"{attribute}" for attribute in LHS)}'+ ' HAVING c>1'
             res = spark.sql(sqlstring).count()
             if(res==0):
                 FDs.append((LHS,RHS))
@@ -135,7 +129,7 @@ def find_FDs(df,current_level_candidates):
     return FDs
 
 
-# In[22]:
+# In[ ]:
 
 
 def controller(df, func):
@@ -167,13 +161,13 @@ def controller(df, func):
     
         # Prune graphs according to feedback of FD-functions
         for RHS in schema:
-            computational_graph[RHS]=prune_graph(level, current_level_result[RHS],computational_graph[RHS]) 
+            computational_graph[RHS] = prune_graph(level, current_level_result[RHS],computational_graph[RHS]) 
 
 
-# In[28]:
+# In[ ]:
 
 
-#Function Sanity Check
+# Function Sanity Check
 schema = df.columns[1:]
 computational_graph=dict()
 for RHS in schema:
@@ -181,7 +175,7 @@ for RHS in schema:
 
 # print(computational_graph['sensor_id'][2])
 
-#Transform res into a dictionary where key: RHS value: a list of LHS
+# Transform res into a dictionary where key: RHS value: a list of LHS
 current_level_result = dict()
 for RHS in schema:
     current_level_result[RHS] = [{'location', 'temperature'}]
