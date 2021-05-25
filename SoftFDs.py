@@ -18,209 +18,74 @@ spark.conf.set('spark.sql.repl.eagerEval.enabled', True)
 sc=spark.sparkContext
 
 
-# In[3]:
+# In[76]:
 
 
-df = spark.read.format("csv").option("header", "true").load('./data/2018-01_bme280sof.csv')
+# df = spark.read.format("csv").option("header", "true").load('./data/2018-01_bme280sof.csv')
+df = spark.read.format("csv").option("header", "true").load('./data/ToyTable.csv')
 
 
-# In[4]:
+# In[77]:
 
 
 df = df.drop('_c0')
 
 
-# In[5]:
+# In[78]:
 
 
-df.createOrReplaceTempView("sofia")
+# df.createOrReplaceTempView("sofia")
+df.createOrReplaceTempView("toy")
 
 
-# In[6]:
+# In[142]:
 
 
-small_df = spark.sql("select * from sofia limit 1000")
+# small_df = spark.sql("select * from sofia limit 1000")
+toy_df = spark.sql("select * from toy")
 
 
-# In[7]:
+# In[143]:
 
 
-def generate_computational_graph(RHS, schema):
-    """
-    Output
-    ----------
-    A dictionary where
-    key: level
-    value: list of current level's candidates, candidates are in the format of set
-    -----
-    """
-    computational_graph=dict()
-    for level in range(3):
-    #use brute force to generate candidates for each level
-        computational_graph[level]=[]
-        if level == 0:
-            for attribute in schema:
-                if attribute != RHS:
-                    computational_graph[level].append(set([attribute]))
-
-        else:
-            for element1 in computational_graph[level-1]:
-                for element2 in computational_graph[0]:
-                    newelement = element1.union(element2)
-                    if newelement not in computational_graph[level]:
-                        if len(newelement) == level + 1:
-                            computational_graph[level].append(newelement)    
-
-    return computational_graph
-
-def get_candidates(level, computational_graph):
-    return computational_graph[level]
-
-def prune_graph(level,current_level_result,computational_graph):
-    """
-    Input
-    -------
-    current_level_result: (soft/delta) functional dependencies discovered by algorithm, data structure: a list of candidates where candidates are in the format of sets
-    computational_graph: A dict where key:level value: list of current level's candidates, candidates are in the format of set
-
-    Output
-    -------
-    A pruned computational graph
-    """
-  # Candidates are pruned because minimal FD are already discovered
-  
-  # prune candidates after this level by verifying whether the next level has previous level's candidates as subset
-    new_computational_graph = copy.deepcopy(computational_graph)
-  
-    for LHS in current_level_result:
-        for candidate in computational_graph[level+1]:
-            if LHS.issubset(candidate):
-                if level<2:
-                    new_computational_graph[level+1].remove(candidate)
+from operator import add
+# schema = small_df.columns
+schema = toy_df.columns
+schema
 
 
-    return new_computational_graph
-
-def transform_res(FDs):
-    """
-    Parameters
-    --------------
-    FDs: a list of (soft/delta) functional dependencies, where elements are tuples(LHS,RHS), LHS is in the format of set
-
-    Output
-    ---------
-    current_level_result: a dictionary where key: RHS value: a list of LHS where candidates are in the form of sets
-    """
-    current_level_result=dict()
-    for (LHS,RHS) in FDs:
-        current_level_result[RHS]=LHS
-
-    return current_level_result
+# In[144]:
 
 
-# In[8]:
+LHS = {'I1'}
+RHS = 'S2'
 
 
-def controller(df, func):
-    """
-    A control flow function
-
-    Parameters
-    -----------
-    func: (soft/delta) Functional Discovery functions
-    df: dataframe
-    """  
-  # Initialization: Generate computational graph for each attribute which will be on RHS
-    schema = df.columns[1:]
-    computational_graph=dict()
-    for RHS in schema:
-        computational_graph[RHS]=generate_computational_graph(RHS,schema)
-
-    for level in range(3):
-        # Get current level candidates
-        current_level_candidates=dict()
-        for RHS in schema:
-            current_level_candidates[RHS] = get_candidates(level,computational_graph[RHS])
-    
-        # Use current_level candidates as an input to FD-functions for each level, func will return discovered (soft/delta)functional dependencies
-        FDs = func(df,current_level_candidates)
-    
-        #Transform res into a dictionary where key: RHS value: a list of LHS where candidates are in the form of sets
-        current_level_result = transform_res(FDs)
-    
-        # Prune graphs according to feedback of FD-functions
-        for RHS in schema:
-            computational_graph[RHS] = prune_graph(level, current_level_result[RHS],computational_graph[RHS]) 
+# In[145]:
 
 
-# In[9]:
+zeroVal1 = ([], 0)
+mergeVal1 = (lambda aggregated, el: (aggregated[0] + [el[0]], aggregated[1] + el[1]))    
+mergeComb1 = (lambda agg1,agg2:agg1+agg2)
 
 
-schema = small_df.columns
+# In[146]:
 
 
-# In[27]:
+zeroVal2 = ([], [], [])
+mergeVal2 = (lambda aggregated, el: (aggregated[0] + [el[0]], aggregated[1] + [el[1]], aggregated[2] + [el[2]]))    
+mergeComb2 = (lambda agg1,agg2:agg1+agg2)
 
 
-computational_graph=dict()
-for RHS in schema:
-    computational_graph[RHS]=generate_computational_graph(RHS,schema)
-
-# Transform res into a dictionary where key: RHS value: a list of LHS
-current_level_result = dict()
-for RHS in schema:
-    current_level_result[RHS] = [{'location', 'temperature'}]
-
-# Prune graphs according to feedback of FD-functions
-for RHS in schema:
-    computational_graph[RHS]=prune_graph(1, current_level_result[RHS],computational_graph[RHS]) 
-
-current_level_candidates=dict()
-for RHS in schema:
-    current_level_candidates[RHS] = get_candidates(1,computational_graph[RHS])
-
-
-# In[10]:
-
-
-# combine into a four-tuple rdd
-def createCombiner(a):
-    return [a]
-
-def append(a, b):
-    a.append(b)
-    return a
-
-def extend(a, b):
-    a.extend(b)
-    return a
-
-
-# In[11]:
-
-
-LHS = {'location', 'lon'}
-RHS = 'humidity'
-
-
-# In[13]:
+# In[147]:
 
 
 # map and reduce into a five-tuple rdd
-rdd1 = small_df.rdd.map(lambda x: (tuple(LHS), RHS, tuple(x[idx] for idx in list(map(lambda y: schema.index(y),LHS))), x[schema.index(RHS)])).map(lambda tpe: (tpe,1)).reduceByKey(lambda a,b:a+b)
+rdd1 = toy_df.rdd.map(lambda x: (*LHS, RHS, tuple(x[idx] for idx in list(map(lambda y: schema.index(y),LHS))), x[schema.index(RHS)])).map(lambda tpe: (tpe,1)).reduceByKey(add)
 # remap five-tuple key and combine by X,A key
-# Method 1: groupByKey + mapValues
-# rdd2 = rdd1.map(lambda x: ((x[0][0], x[0][1]), (x[0][2], x[0][3], x[1]))).groupByKey().mapValues(lambda xs: (tuple(xs)))
-# Method 2: combineByKey
-rdd2 = rdd1.map(lambda x: ((x[0][0], x[0][1]), (x[0][2], x[0][3], x[1]))).combineByKey(createCombiner, append, extend).collect()
+rdd2 = rdd1.map(lambda x: ((x[0][0], x[0][1], x[0][2]), ((x[0][3], x[1]), x[1]))).aggregateByKey(zeroVal1,mergeVal1,mergeComb1).map(lambda x: ((x[0][:-1]), (x[0][-1], *x[1]))).aggregateByKey(zeroVal2,mergeVal2,mergeComb2).collect()
 for line in rdd2:
     print(line)
-
-
-# In[ ]:
-
-
-
 
 
 # In[ ]:
