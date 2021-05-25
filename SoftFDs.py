@@ -77,13 +77,13 @@ mergeVal2 = (lambda aggregated, el: (aggregated[0] + [el[0]], aggregated[1] + [e
 mergeComb2 = (lambda agg1,agg2:agg1+agg2)
 
 
-# In[147]:
+# In[148]:
 
 
 # map and reduce into a five-tuple rdd
 rdd1 = toy_df.rdd.map(lambda x: (*LHS, RHS, tuple(x[idx] for idx in list(map(lambda y: schema.index(y),LHS))), x[schema.index(RHS)])).map(lambda tpe: (tpe,1)).reduceByKey(add)
 # remap five-tuple key and combine by X,A key
-rdd2 = rdd1.map(lambda x: ((x[0][0], x[0][1], x[0][2]), ((x[0][3], x[1]), x[1]))).aggregateByKey(zeroVal1,mergeVal1,mergeComb1).map(lambda x: ((x[0][:-1]), (x[0][-1], *x[1]))).aggregateByKey(zeroVal2,mergeVal2,mergeComb2).collect()
+rdd2 = rdd1.map(lambda x: ((x[0][:-1]), ((x[0][-1], x[1]), x[1]))).aggregateByKey(zeroVal1,mergeVal1,mergeComb1).map(lambda x: ((x[0][:-1]), (x[0][-1], *x[1]))).aggregateByKey(zeroVal2,mergeVal2,mergeComb2).collect()
 for line in rdd2:
     print(line)
 
