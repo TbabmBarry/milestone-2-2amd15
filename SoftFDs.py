@@ -191,7 +191,7 @@ def transform_res(FDs):
 # In[28]:
 
 
-def find_FDs_pairs(level, df,current_level_candidates):
+def find_softFDs_pairs(level, df,current_level_candidates):
     softFDs=[]
     rdds=spark.sparkContext.emptyRDD()
     for RHS in current_level_candidates.keys():
@@ -222,7 +222,7 @@ for RHS in schema:
 
 
 start_time = time.time()
-softFDs = find_FDs_pairs(1, toy_df, current_level_candidates)
+softFDs = find_softFDs_pairs(1, toy_df, current_level_candidates)
 print("--- %s seconds ---" % (time.time() - start_time))
 print(softFDs)
 
