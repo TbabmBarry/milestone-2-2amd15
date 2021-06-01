@@ -5,18 +5,8 @@
 
 
 import time
-import copy
 import findspark
 findspark.init()
-
-
-# In[2]:
-
-
-from pyspark.sql import SparkSession
-spark = SparkSession.builder.getOrCreate()
-spark.conf.set('spark.sql.repl.eagerEval.enabled', True)
-sc=spark.sparkContext
 
 
 # In[2]:
@@ -66,14 +56,14 @@ schema = toy_df.columns
 schema
 
 
-# In[40]:
+# In[8]:
 
 
 LHS = {'I1'}
 RHS = 'S2'
 
 
-# In[35]:
+# In[9]:
 
 
 zeroVal1 = ([], 0)
@@ -81,7 +71,7 @@ mergeVal1 = (lambda aggregated, el: (aggregated[0] + [el[0]], aggregated[1] + el
 mergeComb1 = (lambda agg1,agg2:agg1+agg2)
 
 
-# In[36]:
+# In[10]:
 
 
 zeroVal2 = ([], [], [])
@@ -89,7 +79,7 @@ mergeVal2 = (lambda aggregated, el: (aggregated[0] + [el[0]], aggregated[1] + [e
 mergeComb2 = (lambda agg1,agg2:agg1+agg2)
 
 
-# In[37]:
+# In[11]:
 
 
 zeroVal3 = ([], [])
@@ -97,11 +87,12 @@ mergeVal3 = (lambda aggregated, el: (aggregated[0] + [el[0]], aggregated[1] + [e
 mergeComb3 = (lambda agg1,agg2:agg1+agg2)
 
 
-# In[41]:
+# In[12]:
 
 
 # map and reduce into a five-tuple rdd
-rdd1 = toy_df.rdd.map(lambda x: (*LHS, RHS, tuple(x[idx] for idx in list(map(lambda y: schema.index(y),LHS))), x[schema.index(RHS)]))    .map(lambda tpe: (tpe,1)).reduceByKey(add).map(lambda x: ((x[0][:-1]), ((x[0][-1], x[1]), x[1])))    .aggregateByKey(zeroVal1,mergeVal1,mergeComb1).map(lambda x: ((x[0]), list(map(lambda r: round(r[1] / x[1][1], 3),x[1][0]))))    .map(lambda x: ((x[0]), 1 - reduce(lambda p1, p2:p1+p2,list(map(lambda p: p*(1-p), x[1])))))    .map(lambda x: ((x[0][:-1]), (x[0][-1], x[1]))).aggregateByKey(zeroVal3,mergeVal3,mergeComb3).filter(lambda tup: all(t >= 0.8 for t in tup[1][1]))    .map(lambda tup: tup[0]).collect()
+rdd1 = toy_df.rdd.map(lambda x: (*LHS, RHS, tuple(x[idx] for idx in list(map(lambda y: schema.index(y),LHS))), x[schema.index(RHS)]))    .map(lambda tpe: (tpe,1)).reduceByKey(add)     .map(lambda x: ((x[0][:-1]), ((x[0][-1], x[1]), x[1])))    .aggregateByKey(zeroVal1,mergeVal1,mergeComb1).map(lambda x: ((x[0]), list(map(lambda r: round(r[1] / x[1][1], 3),x[1][0]))))    .map(lambda x: ((x[0]), 1 - reduce(lambda p1, p2:p1+p2,list(map(lambda p: p*(1-p), x[1])))))    .map(lambda x: ((x[0][:-1]), (x[0][-1], x[1]))).aggregateByKey(zeroVal3,mergeVal3,mergeComb3).filter(lambda tup: all(t >= 0.8 for t in tup[1][1]))    .map(lambda tup: tup[0]).collect()
+    
 # rdd2 = rdd1.map(lambda x: ((x[0][:-1]), ((x[0][-1], x[1]), x[1]))).aggregateByKey(zeroVal1,mergeVal1,mergeComb1).map(lambda x: ((x[0]), list(map(lambda r: round(r[1] / x[1][1], 3),x[1][0])))).collect()
 # rdd2 = rdd1.map(lambda x: ((x[0][:-1]), ((x[0][-1], x[1]), x[1]))).aggregateByKey(zeroVal1,mergeVal1,mergeComb1).map(lambda x: ((x[0]), (list(map(lambda r: (r[0], round(r[1] / x[1][1], 3)),x[1][0])), x[1][1]))).collect()
 # rdd2 = rdd1.map(lambda x: ((x[0][:-1]), ((x[0][-1], x[1]), x[1]))).aggregateByKey(zeroVal1,mergeVal1,mergeComb1).map(lambda x: ((x[0][:-1]), (x[0][-1], *x[1]))).aggregateByKey(zeroVal2,mergeVal2,mergeComb2).collect()
@@ -109,7 +100,7 @@ for line in rdd1:
     print(line)
 
 
-# In[11]:
+# In[13]:
 
 
 def generate_computational_graph(RHS, schema):
@@ -188,7 +179,7 @@ def transform_res(FDs):
     return current_level_result
 
 
-# In[28]:
+# In[14]:
 
 
 def find_softFDs_pairs(level, df,current_level_candidates):
@@ -196,15 +187,18 @@ def find_softFDs_pairs(level, df,current_level_candidates):
     rdds=spark.sparkContext.emptyRDD()
     for RHS in current_level_candidates.keys():
         for LHS in current_level_candidates[RHS]:
-            rdds=df.rdd.map(lambda x: (*LHS, RHS, tuple(x[idx] for idx in list(map(lambda y: schema.index(y),LHS))), x[schema.index(RHS)]))                .map(lambda tpe: (tpe,1)).reduceByKey(add)                .map(lambda x: ((x[0][:-1]), ((x[0][-1], x[1]), x[1])))                .aggregateByKey(zeroVal1,mergeVal1,mergeComb1)                .map(lambda x: ((x[0]), list(map(lambda r: round(r[1] / x[1][1], 3),x[1][0]))))                .map(lambda x: ((x[0]), 1 - reduce(lambda p1, p2:p1+p2,list(map(lambda p: p*(1-p), x[1])))))                .map(lambda x: ((x[0][:-1]), (x[0][-1], x[1]))).aggregateByKey(zeroVal3,mergeVal3,mergeComb3)                .filter(lambda tup: all(t >= 0.8 for t in tup[1][1]))                .map(lambda x:(*x[0][:level],x[0][level])).collect()
+            rddt=df.rdd.map(lambda x: (*LHS, RHS, tuple(x[idx] for idx in list(map(lambda y: schema.index(y),LHS))), x[schema.index(RHS)]))
+            rdds=rdds.union(rddt)
+    
+    rdds = rdds.map(lambda tpe: (tpe,1)).reduceByKey(add)                .map(lambda x: ((x[0][:-1]), ((x[0][-1], x[1]), x[1])))                .repartition(1)                .aggregateByKey(zeroVal1,mergeVal1,mergeComb1)                .map(lambda x: ((x[0]), list(map(lambda r: round(r[1] / x[1][1], 3),x[1][0]))))                .map(lambda x: ((x[0]), 1 - reduce(lambda p1, p2:p1+p2,list(map(lambda p: p*(1-p), x[1])))))                .map(lambda x: ((x[0][:-1]), (x[0][-1], x[1]))).aggregateByKey(zeroVal3,mergeVal3,mergeComb3)                .filter(lambda tup: all(t >= 0.8 for t in tup[1][1]))                .map(lambda x:(*x[0][:level],x[0][level]))
                 
-            for item in rdds:
-                softFDs.append(({*item[:-1]},item[-1]))
+    for item in rdds.toLocalIterator():
+        softFDs.append(({*item[:-1]},item[-1]))
 
     return softFDs
 
 
-# In[32]:
+# In[15]:
 
 
 computational_graph=dict()
@@ -218,11 +212,23 @@ for RHS in schema:
     current_level_candidates[RHS] = get_candidates(0,computational_graph[RHS])
 
 
-# In[33]:
+# In[16]:
+
+
+current_level_candidates
+
+
+# In[17]:
 
 
 start_time = time.time()
 softFDs = find_softFDs_pairs(1, toy_df, current_level_candidates)
 print("--- %s seconds ---" % (time.time() - start_time))
 print(softFDs)
+
+
+# In[ ]:
+
+
+
 
