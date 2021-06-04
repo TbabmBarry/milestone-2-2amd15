@@ -15,11 +15,10 @@ sc=spark.sparkContext
 conf = ps.SparkConf().setMaster('local').setAppName("deltaFD")
 spark=SparkSession.builder.config(conf=conf).getOrCreate()
 
-# df = spark.read.format("csv").option("header", "true").load('/FileStore/tables/ToyTable.csv')
-df = spark.read.format("csv").option("header", "true").load('/home/eliofluorite/test.csv')
+df = spark.read.format("csv").option("header", "true").load('/FileStore/tables/test.csv')
 df = df.drop('_c0')
 df.createOrReplaceTempView("toy")
-toy_df = spark.sql("select * from toy limit 3300000")
+toy_df = spark.sql("select int(sensor_id), int(location), double(lat), double(lon), timestamp(timestamp), double(pressure), double(temperature), double(humidity) from toy limit 10000")
 schema = toy_df.columns
 
 def generate_computational_graph(RHS, schema):
@@ -149,72 +148,54 @@ def controller(df, func):
     return FDs
 
 
-def time_handler(string):
-    fmt = '%Y-%m-%dT%H:%M:%S'
-    tstamp = datetime.strptime(string, fmt)
-    return tstamp
-
-
-def data_type(string):
-    if re.match(r'[0-9]{4}\-[0-9]{2}\-[0-9]{2}T[0-9]{2}\:[0-9]{2}\:[0-9]{2}', string):
-        data_type = 'time'
-        return data_type
-    elif re.match(r'^[-+]?[0-9]+\.[0-9]+$', string) or re.match(r'^[-+]?[0-9]+', string):
-        data_type = 'digit'
-        return data_type
-    else:
-        data_type = ""
-        return data_type
-
-
 def seperate_candidates(df, current_level_candidates):
     candidates_time = dict()
     candidates_digit = dict()
-
+    
     for RHS in current_level_candidates.keys():
-        if data_type(df.select(RHS).first()[0]) == 'time':
+        if RHS == 'timestamp':
             candidates_time[RHS] = current_level_candidates[RHS]
         else:
             candidates_digit[RHS] = current_level_candidates[RHS]
-
+    
     return candidates_time, candidates_digit
 
 
-def find_deltaFDs_pairs(level, df, current_level_candidates, delta=0.1):
-    deltaFDs = []
+def find_deltaFDs_pairs(level, df,current_level_candidates, delta=0.1):
+    K = 2
+    deltaFDs = [] 
     candidates_time = seperate_candidates(df, current_level_candidates)[0]
     candidates_digit = seperate_candidates(df, current_level_candidates)[1]
-
+    
     rdds_time = spark.sparkContext.emptyRDD()
     rdds_digit = spark.sparkContext.emptyRDD()
-
+    
     for RHS in candidates_time.keys():
-        for LHS in candidates_time[RHS]:
-            pairs = df.rdd.map(lambda x: (
-            ((*LHS, RHS), *[x[schema.index(attribute)] for attribute in LHS]), {time_handler(x[schema.index(RHS)])}))
-            rdds_time = rdds_time.union(pairs)
-
+      for LHS in candidates_time[RHS]:
+        pairs = df.rdd.map(lambda x:(((*LHS,RHS),*[x[schema.index(attribute)] for attribute in LHS]),{x[schema.index(RHS)]}))
+        rdds_time = rdds_time.union(pairs)
+        
+    rdds_time = rdds_time.reduceByKey(lambda x,y: x.union(y))\
+                .map(lambda x: (x[0][0], (max(x[1]) - min(x[1])).total_seconds() / 60 < delta))\
+                .reduceByKey(lambda x, y: x and y)\
+                .filter(lambda x:x[1] == True)
+    
     for RHS in candidates_digit.keys():
-        for LHS in candidates_digit[RHS]:
-            pairs = df.rdd.map(lambda x: (
-            ((*LHS, RHS), *[x[schema.index(attribute)] for attribute in LHS]), {eval(x[schema.index(RHS)])}))
-            rdds_digit = rdds_digit.union(pairs)
-
-    rdds_time = rdds_time.reduceByKey(lambda x, y: x.union(y)) \
-        .map(lambda x: (x[0][0], (max(x[1]) - min(x[1])).total_seconds() / 60 < delta)) \
-        .reduceByKey(lambda x, y: x and y) \
-        .filter(lambda x: x[1] == True)
-    rdds_digit = rdds_digit.reduceByKey(lambda x, y: x.union(y)) \
-        .map(lambda x: (x[0][0], (Decimal(str(max(x[1]))) - Decimal(str(min(x[1])))) <= Decimal(str(delta)))) \
-        .reduceByKey(lambda x, y: x and y) \
-        .filter(lambda x: x[1] == True)
-
+      for LHS in candidates_digit[RHS]:
+        pairs = df.rdd.map(lambda x:(((*LHS,RHS),*[x[schema.index(attribute)] for attribute in LHS]),{x[schema.index(RHS)]}))
+        rdds_digit = rdds_digit.union(pairs)
+ 
+    rdds_digit = rdds_digit.reduceByKey(lambda x,y: x.union(y))\
+                .map(lambda x: (x[0][0], (max(x[1]) - min(x[1])) < delta))\
+                .reduceByKey(lambda x,y: x and y)\
+                .filter(lambda x:x[1] == True)
+    
     for item in rdds_time.toLocalIterator():
-        deltaFDs.append(({*item[0][:-1]}, item[0][-1]))
-
+        deltaFDs.append(({*item[0][:-1]},item[0][-1]))
+    
     for item in rdds_digit.toLocalIterator():
-        deltaFDs.append(({*item[0][:-1]}, item[0][-1]))
-
+        deltaFDs.append(({*item[0][:-1]},item[0][-1]))
+    
     return deltaFDs
 
 
