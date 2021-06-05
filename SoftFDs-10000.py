@@ -161,8 +161,8 @@ if __name__ == '__main__':
     import time
     spark = SparkSession.builder.getOrCreate()
     sc = spark.sparkContext
-    df = spark.read.csv(path='hdfs:///ToyTable.csv', sep=',', encoding='UTF-8', comment=None, header=True, inferSchema=True)
-    # month_1 = helper('01')
+    df = spark.read.csv(path='hdfs:///2018-01_bme280sof.csv', sep=',', encoding='UTF-8', comment=None, header=True, inferSchema=True)
+    df = spark.createDataFrame(df.head(10000), df.schema)
     computational_graph=dict()
     schema = df.columns
     start_time = time.time()
