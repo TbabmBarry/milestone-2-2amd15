@@ -167,34 +167,53 @@ def find_deltaFDs_pairs(level, df,current_level_candidates, delta=0.1):
     candidates_time = seperate_candidates(df, current_level_candidates)[0]
     candidates_digit = seperate_candidates(df, current_level_candidates)[1]
     
-    rdds_time = spark.sparkContext.emptyRDD()
-    rdds_digit = spark.sparkContext.emptyRDD()
+    
+    array_rdds_time = []
+    array_rdds_digit = []
     
     for RHS in candidates_time.keys():
-      for LHS in candidates_time[RHS]:
-        pairs = df.rdd.map(lambda x:(((*LHS,RHS),*[x[schema.index(attribute)] for attribute in LHS]),{x[schema.index(RHS)]}))
-        rdds_time = rdds_time.union(pairs)
+        for LHS in candidates_time[RHS]:
+            deltaFDs.append((LHS, RHS))
+            pairs = df.rdd.map(lambda x:(((*LHS,RHS),*[x[schema.index(attribute)] for attribute in LHS]),{x[schema.index(RHS)]}))
+            array_rdds_time.append(pairs)
         
-    rdds_time = rdds_time.reduceByKey(lambda x,y: x.union(y))\
+    if len(array_rdds_time) >= 1:
+        rdds_time = sc.union(array_rdds_time)
+    else:
+        rdds_time = spark.sparkContext.emptyRDD()
+             
+    rdds_time = rdds_time.coalesce(5).reduceByKey(lambda x,y: x.union(y))\
                 .map(lambda x: (x[0][0], (max(x[1]) - min(x[1])).total_seconds() / 60 < delta))\
-                .reduceByKey(lambda x, y: x and y)\
-                .filter(lambda x:x[1] == True)
+                .filter(lambda x: x[1] == False)\
+                .map(lambda x: x[0])\
+                .distinct()\
+                .collect()
     
     for RHS in candidates_digit.keys():
-      for LHS in candidates_digit[RHS]:
-        pairs = df.rdd.map(lambda x:(((*LHS,RHS),*[x[schema.index(attribute)] for attribute in LHS]),{x[schema.index(RHS)]}))
-        rdds_digit = rdds_digit.union(pairs)
+        for LHS in candidates_digit[RHS]:
+            deltaFDs.append((LHS, RHS))
+            pairs = df.rdd.map(lambda x:(((*LHS,RHS),*[x[schema.index(attribute)] for attribute in LHS]),{x[schema.index(RHS)]}))
+            array_rdds_digit.append(pairs)
+        
+    if len(array_rdds_digit) >= 1:
+        rdds_digit = sc.union(array_rdds_digit)
+    else:
+        rdds_digit = spark.sparkContext.emptyRDD()
  
-    rdds_digit = rdds_digit.reduceByKey(lambda x,y: x.union(y))\
+    rdds_digit = rdds_digit.coalesce(10).reduceByKey(lambda x,y: x.union(y))\
                 .map(lambda x: (x[0][0], (max(x[1]) - min(x[1])) < delta))\
-                .reduceByKey(lambda x,y: x and y)\
-                .filter(lambda x:x[1] == True)
-    
-    for item in rdds_time.toLocalIterator():
-        deltaFDs.append(({*item[0][:-1]},item[0][-1]))
-    
-    for item in rdds_digit.toLocalIterator():
-        deltaFDs.append(({*item[0][:-1]},item[0][-1]))
+                .filter(lambda x: x[1] == False)\
+                .map(lambda x: x[0])\
+                .distinct()\
+                .collect()
+  
+    if len(rdds_time) != 0:
+        for item in rdds_time:
+            deltaFDs.remove(({*item[:-1]},item[-1]))
+  
+    if len(rdds_digit) != 0:
+        for item in rdds_digit:
+            deltaFDs.remove(({*item[:-1]},item[-1]))
     
     return deltaFDs
 
